@@ -2,8 +2,8 @@
   <img width="640" height=auto alt="Drawing sketchpad (4)" src="https://github.com/user-attachments/assets/04a14b8e-8dfb-4dd5-bd30-a76a5790de93">
 </div>
 
-![Stars](https://img.shields.io/github/stars/spacecat031/atomlang?style=social)
-![Owned by](https://img.shields.io/badge/Made%20by-wawadev-blue)
+![stars](https://img.shields.io/github/stars/WawaDevX/atomlang-legacy-DONT-USE-?style=social)
+![made by](https://img.shields.io/badge/Made%20by-wawadev-blue)
 ![beginner](https://img.shields.io/badge/beginner-friendly-orange)
 
 
