@@ -2,30 +2,37 @@ package parser
 
 import (
 	"fmt"
-	"strings"
+	"os"
+	"strconv"
+	"time"
 )
 
-func Getenvready() {
-	fmt.Println("Atom3")
+// Wait pauses execution for a given number of seconds
+func wait(seconds int) {
+	time.Sleep(time.Duration(seconds) * time.Second)
 }
 
-func Print(text string, ttype string) {
-	if ttype == "string" {
-		text = strings.Replace(text, `"`, "", -1)
-		fmt.Println(text)
-	} else if ttype == "int" {
-		fmt.Println(text)
-	} else if ttype == "var" {
-		variable, exists := Variables[text]
-		if !exists {
-			fmt.Printf("[Runtime Error]: Variable '%s' is not defined\n", text)
-			return
+// ExecuteFunction acts as the central router for built-in functions
+func ExecuteFunction(name string, args []string) {
+	switch name {
+	case "print":
+		for _, arg := range args {
+			val := ResolveValue(arg)
+			Print(val, "string")
 		}
-		if variable.ttype == "string" {
-			val := strings.Replace(variable.Value, `"`, "", -1)
-			fmt.Println(val)
-		} else {
-			fmt.Println(variable.Value)
+
+	case "exit":
+		os.Exit(0)
+
+	case "wait":
+		for _, arg := range args {
+			valStr := ResolveValue(arg)
+			if num, err := strconv.Atoi(valStr); err == nil {
+				Wait(num)
+			}
 		}
+
+	default:
+		fmt.Printf("[Runtime Error]: Unknown function '%s'\n", name)
 	}
 }

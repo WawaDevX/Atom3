@@ -22,13 +22,13 @@ func SetVariable(name string, value string, valType string) {
 		value = strings.TrimSuffix(value, `]`)
 
 		evalParams := make(map[string]any)
-		for varName, varObj := range Variables {
-			if numVal, err := strconv.Atoi(varObj.Value); err == nil {
-				evalParams[varName] = numVal
-			} else if floatVal, err := strconv.ParseFloat(varObj.Value, 64); err == nil {
-				evalParams[varName] = floatVal
+		for k, v := range Variables {
+			if v.ttype == "bool" {
+				evalParams[k] = (v.Value == "true")
+			} else if numVal, err := strconv.Atoi(v.Value); err == nil {
+				evalParams[k] = numVal
 			} else {
-				evalParams[varName] = varObj.Value
+				evalParams[k] = v.Value
 			}
 		}
 

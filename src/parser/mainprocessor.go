@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -12,15 +11,23 @@ import (
 )
 
 var skipBlock = false
+var lastIfPassed = false
+
+// Loop Buffering State
+var isBufferingWhile = false
+var whileCond = ""
+var whileLines []string
 
 var atomLexer = lexer.MustSimple([]lexer.SimpleRule{
+	{Name: "Comment", Pattern: `//.*`},
 	{Name: "Expr", Pattern: `\[[^\]]+\]`},
 	{Name: "String", Pattern: `"[^"]*"`},
+	{Name: "Bool", Pattern: `\b(true|false)\b`},
 	{Name: "Int", Pattern: `\d+`},
 	{Name: "LBrace", Pattern: `\{`},
 	{Name: "RBrace", Pattern: `\}`},
 	{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{Name: "Punct", Pattern: `==|\?=|\!=|<=|>=|[=(),]`}, // Added ?= here
+	{Name: "Punct", Pattern: `==|\?=|\!=|<=|>=|[=(),]`},
 	{Name: "whitespace", Pattern: `\s+`},
 })
 
@@ -28,23 +35,28 @@ type IfStmt struct {
 	Condition string `@Expr "{"`
 }
 
+type ElseStmt struct {
+	Body string `"else" "{"`
+}
+
 type VarDecl struct {
 	Name  string `@Ident`
-	Value string `"=" ( @Expr | @String | @Int | @Ident )`
+	Value string `"=" ( @Expr | @String | @Bool | @Int | @Ident )`
 }
 
 type FunctionCall struct {
 	Name string   `@Ident`
-	Args []string `"(" [ (@String | @Ident) ( "," (@String | @Ident) )* ] ")"`
+	Args []string `"(" [ (@String | @Bool | @Int | @Expr | @Ident) ( "," (@String | @Bool | @Int | @Expr | @Ident) )* ] ")"`
 }
 
 type Statement struct {
 	IfCall   *IfStmt       `  "if" @@`
+	ElseCall *ElseStmt     `| @@`
 	VarCall  *VarDecl      `| "var" @@`
 	FuncCall *FunctionCall `| @@`
 }
 
-var Parser = participle.MustBuild[Statement](participle.Lexer(atomLexer))
+var Parser = participle.MustBuild[Statement](participle.Lexer(atomLexer), participle.Elide("Comment"))
 
 func isNumber(s string) bool {
 	if s == "" {
@@ -58,14 +70,88 @@ func isNumber(s string) bool {
 	return true
 }
 
+func evaluateCondition(condStr string) bool {
+	cond := strings.TrimSuffix(strings.TrimPrefix(condStr, "["), "]")
+	cond = strings.ReplaceAll(cond, "?=", "!=")
+
+	evalParams := make(map[string]any)
+	for k, v := range Variables {
+		cleanVal := strings.Trim(v.Value, `" `)
+
+		if v.ttype == "bool" {
+			evalParams[k] = (cleanVal == "true")
+		} else if numVal, err := strconv.Atoi(cleanVal); err == nil {
+			evalParams[k] = numVal
+		} else if floatVal, err := strconv.ParseFloat(cleanVal, 64); err == nil {
+			evalParams[k] = floatVal
+		} else {
+			evalParams[k] = cleanVal
+		}
+	}
+
+	expr, err := govaluate.NewEvaluableExpression(cond)
+	if err != nil {
+		return false
+	}
+
+	result, err := expr.Evaluate(evalParams)
+	if err != nil {
+		return false
+	}
+
+	boolResult, isBool := result.(bool)
+	return isBool && boolResult
+}
+
 func RunLine(line string) {
 	line = strings.TrimSpace(line)
-	if line == "" {
+	if line == "" || strings.HasPrefix(line, "//") {
 		return
+	}
+
+	// while buffer check
+	if isBufferingWhile {
+		if line == "}" {
+			isBufferingWhile = false
+
+			// Execute the loop!
+			for evaluateCondition(whileCond) {
+				for _, loopLine := range whileLines {
+					RunLine(loopLine)
+				}
+			}
+			whileLines = nil
+			whileCond = ""
+			return
+		}
+		whileLines = append(whileLines, line)
+		return
+	}
+
+	// while
+	if strings.HasPrefix(line, "while") {
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) > 1 {
+			condPart := strings.TrimSpace(parts[1])
+			condPart = strings.TrimSuffix(condPart, "{")
+			whileCond = strings.TrimSpace(condPart)
+			isBufferingWhile = true
+			whileLines = []string{}
+			return
+		}
 	}
 
 	if line == "}" {
 		skipBlock = false
+		return
+	}
+
+	if strings.HasPrefix(line, "else") {
+		if lastIfPassed {
+			skipBlock = true
+		} else {
+			skipBlock = false
+		}
 		return
 	}
 
@@ -84,39 +170,12 @@ func RunLine(line string) {
 
 	// if
 	if stmt.IfCall != nil {
-		cond := strings.TrimSuffix(strings.TrimPrefix(stmt.IfCall.Condition, "["), "]")
-
-		// Convert Atom 3.0's custom ?= operator to != for govaluate
-		cond = strings.ReplaceAll(cond, "?=", "!=")
-
-		evalParams := make(map[string]any)
-		for k, v := range Variables {
-			cleanVal := strings.Trim(v.Value, `" `)
-
-			if numVal, err := strconv.Atoi(cleanVal); err == nil {
-				evalParams[k] = numVal
-			} else if floatVal, err := strconv.ParseFloat(cleanVal, 64); err == nil {
-				evalParams[k] = floatVal
-			} else {
-				evalParams[k] = cleanVal
-			}
-		}
-
-		expr, err := govaluate.NewEvaluableExpression(cond)
-		if err != nil {
+		if evaluateCondition(stmt.IfCall.Condition) {
+			skipBlock = false
+			lastIfPassed = true
+		} else {
 			skipBlock = true
-			return
-		}
-
-		result, err := expr.Evaluate(evalParams)
-		if err != nil {
-			skipBlock = true
-			return
-		}
-
-		boolResult, isBool := result.(bool)
-		if !isBool || !boolResult {
-			skipBlock = true
+			lastIfPassed = false
 		}
 		return
 	}
@@ -129,6 +188,8 @@ func RunLine(line string) {
 
 		if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
 			varType = "expr"
+		} else if val == "true" || val == "false" {
+			varType = "bool"
 		} else if strings.HasPrefix(val, `"`) && strings.HasSuffix(val, `"`) {
 			varType = "string"
 		} else if isNumber(val) {
@@ -143,20 +204,6 @@ func RunLine(line string) {
 
 	// Functions
 	if stmt.FuncCall != nil {
-		call := stmt.FuncCall
-
-		if call.Name == "print" {
-			for _, arg := range call.Args {
-				if strings.HasPrefix(arg, `"`) && strings.HasSuffix(arg, `"`) {
-					Print(arg, "string")
-				} else if isNumber(arg) {
-					Print(arg, "int")
-				} else {
-					Print(arg, "var")
-				}
-			}
-		} else if call.Name == "exit" {
-			os.Exit(0)
-		}
+		ExecuteFunction(stmt.FuncCall.Name, stmt.FuncCall.Args)
 	}
 }
