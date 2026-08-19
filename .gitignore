@@ -1,0 +1,6 @@
+# IDEs and OS files
+.vscode/
+.directory
+
+# uhhhh atom stuff
+test.atom

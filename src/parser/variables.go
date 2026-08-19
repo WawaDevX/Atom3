@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Knetic/govaluate"
@@ -21,8 +22,14 @@ func SetVariable(name string, value string, valType string) {
 		value = strings.TrimSuffix(value, `]`)
 
 		evalParams := make(map[string]any)
-		for k, v := range Variables {
-			evalParams[k] = v.Value
+		for varName, varObj := range Variables {
+			if numVal, err := strconv.Atoi(varObj.Value); err == nil {
+				evalParams[varName] = numVal
+			} else if floatVal, err := strconv.ParseFloat(varObj.Value, 64); err == nil {
+				evalParams[varName] = floatVal
+			} else {
+				evalParams[varName] = varObj.Value
+			}
 		}
 
 		expression, err := govaluate.NewEvaluableExpression(value)

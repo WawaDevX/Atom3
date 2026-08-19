@@ -1,25 +1,36 @@
 package parser
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/Knetic/govaluate"
 	"github.com/alecthomas/participle/v2"
 	"github.com/alecthomas/participle/v2/lexer"
 )
+
+var skipBlock = false
 
 var atomLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Expr", Pattern: `\[[^\]]+\]`},
 	{Name: "String", Pattern: `"[^"]*"`},
 	{Name: "Int", Pattern: `\d+`},
+	{Name: "LBrace", Pattern: `\{`},
+	{Name: "RBrace", Pattern: `\}`},
 	{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{Name: "Punct", Pattern: `[=(),]`},
+	{Name: "Punct", Pattern: `==|\?=|\!=|<=|>=|[=(),]`}, // Added ?= here
 	{Name: "whitespace", Pattern: `\s+`},
 })
 
+type IfStmt struct {
+	Condition string `@Expr "{"`
+}
+
 type VarDecl struct {
-	Name  string `@Ident "="`
-	Value string `@Expr | @String | @Int | @Ident`
+	Name  string `@Ident`
+	Value string `"=" ( @Expr | @String | @Int | @Ident )`
 }
 
 type FunctionCall struct {
@@ -28,7 +39,8 @@ type FunctionCall struct {
 }
 
 type Statement struct {
-	VarCall  *VarDecl      `  "var" @@`
+	IfCall   *IfStmt       `  "if" @@`
+	VarCall  *VarDecl      `| "var" @@`
 	FuncCall *FunctionCall `| @@`
 }
 
@@ -52,14 +64,68 @@ func RunLine(line string) {
 		return
 	}
 
-	stmt, err := Parser.ParseString("", line)
-	if err != nil || stmt == nil {
+	if line == "}" {
+		skipBlock = false
 		return
 	}
 
+	if skipBlock {
+		return
+	}
+
+	stmt, err := Parser.ParseString("", line)
+	if err != nil {
+		fmt.Printf("[Parse Error] on line '%s': %v\n", line, err)
+		return
+	}
+	if stmt == nil {
+		return
+	}
+
+	// if
+	if stmt.IfCall != nil {
+		cond := strings.TrimSuffix(strings.TrimPrefix(stmt.IfCall.Condition, "["), "]")
+
+		// Convert Atom 3.0's custom ?= operator to != for govaluate
+		cond = strings.ReplaceAll(cond, "?=", "!=")
+
+		evalParams := make(map[string]any)
+		for k, v := range Variables {
+			cleanVal := strings.Trim(v.Value, `" `)
+
+			if numVal, err := strconv.Atoi(cleanVal); err == nil {
+				evalParams[k] = numVal
+			} else if floatVal, err := strconv.ParseFloat(cleanVal, 64); err == nil {
+				evalParams[k] = floatVal
+			} else {
+				evalParams[k] = cleanVal
+			}
+		}
+
+		expr, err := govaluate.NewEvaluableExpression(cond)
+		if err != nil {
+			skipBlock = true
+			return
+		}
+
+		result, err := expr.Evaluate(evalParams)
+		if err != nil {
+			skipBlock = true
+			return
+		}
+
+		boolResult, isBool := result.(bool)
+		if !isBool || !boolResult {
+			skipBlock = true
+		}
+		return
+	}
+
+	// variables
 	if stmt.VarCall != nil {
 		val := stmt.VarCall.Value
-		varType := "var"
+		varName := strings.TrimSpace(stmt.VarCall.Name)
+		varType := "ident"
 
 		if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
 			varType = "expr"
@@ -67,12 +133,15 @@ func RunLine(line string) {
 			varType = "string"
 		} else if isNumber(val) {
 			varType = "int"
+		} else {
+			varType = "var"
 		}
 
-		SetVariable(stmt.VarCall.Name, val, varType)
+		SetVariable(varName, val, varType)
 		return
 	}
 
+	// Functions
 	if stmt.FuncCall != nil {
 		call := stmt.FuncCall
 
