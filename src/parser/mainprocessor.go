@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/Knetic/govaluate"
@@ -79,24 +78,16 @@ func evaluateCondition(condStr string) bool {
 	cond := strings.TrimSuffix(strings.TrimPrefix(condStr, "["), "]")
 	cond = strings.ReplaceAll(cond, "?=", "!=")
 
-	evalParams := make(map[string]any)
-	for k, v := range Variables {
-		cleanVal := strings.Trim(v.Value, `" `)
+	updateEvalParams()
 
-		if v.ttype == "bool" {
-			evalParams[k] = (cleanVal == "true")
-		} else if numVal, err := strconv.Atoi(cleanVal); err == nil {
-			evalParams[k] = numVal
-		} else if floatVal, err := strconv.ParseFloat(cleanVal, 64); err == nil {
-			evalParams[k] = floatVal
-		} else {
-			evalParams[k] = cleanVal
+	expr, exists := exprCache[cond]
+	if !exists {
+		var err error
+		expr, err = govaluate.NewEvaluableExpression(cond)
+		if err != nil {
+			return false
 		}
-	}
-
-	expr, err := govaluate.NewEvaluableExpression(cond)
-	if err != nil {
-		return false
+		exprCache[cond] = expr
 	}
 
 	result, err := expr.Evaluate(evalParams)
