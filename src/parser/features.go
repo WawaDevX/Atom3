@@ -11,11 +11,11 @@ func ResolveValue(arg string) string {
 		SetVariable("__temp__", arg, "expr")
 		return Variables["__temp__"].Value //TODO: make a better way of doing this.
 	}
-	// 2. Variables: x
+	// Variables.
 	if v, exists := Variables[arg]; exists {
 		return v.Value
 	}
-	// 3. Raw Strings ("hello"), Raw Numbers (10), or Raw Booleans (true/false)
+	// Booleans and strings
 	return strings.Trim(arg, `"`)
 }
 

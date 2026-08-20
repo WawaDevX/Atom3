@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 )
 
-// Wait pauses execution for a given number of seconds
-func wait(seconds int) {
-	time.Sleep(time.Duration(seconds) * time.Second)
+type UserFunc struct {
+	Params []string
+	Body   []string
 }
 
-// ExecuteFunction acts as the central router for built-in functions
+var UserFunctions = make(map[string]UserFunc)
+
+// Router
 func ExecuteFunction(name string, args []string) {
 	switch name {
 	case "print":
@@ -33,6 +34,39 @@ func ExecuteFunction(name string, args []string) {
 		}
 
 	default:
-		fmt.Printf("[Runtime Error]: Unknown function '%s'\n", name)
+		// User-defined functions lookup
+		fn, exists := UserFunctions[name]
+		if !exists {
+			fmt.Printf("[Runtime Error]: Unknown function '%s'\n", name)
+			return
+		}
+
+		if len(args) != len(fn.Params) {
+			fmt.Printf("[Runtime Error]: Function '%s' expects %d args, got %d\n", name, len(fn.Params), len(args))
+			return
+		}
+
+		// Param
+		for i, param := range fn.Params {
+			rawArg := args[i]
+			// If it's already resolved.
+			val := ResolveValue(rawArg)
+
+			// Check type
+			varType := "var"
+			if isNumber(val) {
+				varType = "int"
+			} else if val == "true" || val == "false" {
+				varType = "bool"
+			} else {
+				varType = "string"
+			}
+
+			SetVariable(param, val, varType)
+		}
+
+		for _, line := range fn.Body {
+			RunLine(line)
+		}
 	}
 }

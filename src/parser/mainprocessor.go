@@ -13,10 +13,15 @@ import (
 var skipBlock = false
 var lastIfPassed = false
 
-// Loop Buffering State
+// Loop Buffering
 var isBufferingWhile = false
 var whileCond = ""
 var whileLines []string
+
+var isBufferingFunc = false
+var currentFuncName = ""
+var currentFuncParams []string
+var currentFuncLines []string
 
 var atomLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Comment", Pattern: `//.*`},
@@ -107,6 +112,47 @@ func RunLine(line string) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "//") {
 		return
+	}
+
+	if isBufferingFunc {
+		if line == "}" {
+			isBufferingFunc = false
+			UserFunctions[currentFuncName] = UserFunc{
+				Params: currentFuncParams,
+				Body:   currentFuncLines,
+			}
+			currentFuncLines = nil
+			currentFuncParams = nil
+			currentFuncName = ""
+			return
+		}
+		currentFuncLines = append(currentFuncLines, line)
+		return
+	}
+
+	if strings.HasPrefix(line, "func ") {
+		header := strings.TrimPrefix(line, "func ")
+		header = strings.TrimSuffix(header, "{")
+		header = strings.TrimSpace(header)
+
+		parts := strings.SplitN(header, "(", 2)
+		if len(parts) == 2 {
+			currentFuncName = strings.TrimSpace(parts[0])
+			paramStr := strings.TrimSuffix(parts[1], ")")
+			paramStr = strings.TrimSpace(paramStr)
+
+			currentFuncParams = nil
+			if paramStr != "" {
+				rawParams := strings.Split(paramStr, ",")
+				for _, p := range rawParams {
+					currentFuncParams = append(currentFuncParams, strings.TrimSpace(p))
+				}
+			}
+
+			isBufferingFunc = true
+			currentFuncLines = []string{}
+			return
+		}
 	}
 
 	// while buffer check
