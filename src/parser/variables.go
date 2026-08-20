@@ -57,7 +57,11 @@ func SetVariable(name string, value string, valType string) {
 			return
 		}
 
-		value = fmt.Sprint(result)
+		if f, ok := result.(float64); ok {
+			value = strconv.FormatFloat(f, 'f', -1, 64)
+		} else {
+			value = fmt.Sprint(result)
+		}
 
 		switch result.(type) {
 		case bool:
@@ -80,9 +84,29 @@ func SetVariable(name string, value string, valType string) {
 		valType = existing.ttype
 	}
 
-	Variables[name] = Variable{
-		Name:  name,
-		ttype: valType,
-		Value: value,
+	if existing, ok := Variables[name]; ok {
+		existing.ttype = valType
+		existing.Value = value
+		Variables[name] = existing
+	} else {
+		Variables[name] = Variable{
+			Name:  name,
+			ttype: valType,
+			Value: value,
+		}
+	}
+
+	if valType == "int" {
+		if numVal, err := strconv.Atoi(value); err == nil {
+			evalParams[name] = numVal
+		} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			evalParams[name] = floatVal
+		} else {
+			evalParams[name] = value
+		}
+	} else if valType == "bool" {
+		evalParams[name] = (value == "true")
+	} else {
+		evalParams[name] = strings.Trim(value, `" `)
 	}
 }
