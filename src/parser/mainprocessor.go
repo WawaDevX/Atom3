@@ -9,8 +9,29 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
-var skipBlock = false
-var lastIfPassed = false
+type blockFrame struct {
+	active             bool
+	taken              bool
+	parentActiveAtOpen bool
+}
+
+var blockStack []blockFrame
+
+type elseInfo struct {
+	parentActive bool
+	ifTaken      bool
+}
+
+var lastIfClosed *elseInfo
+
+func currentlyActive() bool {
+	if len(blockStack) == 0 {
+		return true
+	}
+	return blockStack[len(blockStack)-1].active
+}
+
+var whileDepth = 0
 
 // Loop Buffering
 var isBufferingWhile = false
@@ -44,8 +65,9 @@ type ElseStmt struct {
 }
 
 type VarDecl struct {
-	Name  string `@Ident`
-	Value string `"=" ( @Expr | @String | @Bool | @Int | @Ident )`
+	Name    string        `@Ident "="`
+	FuncVal *FunctionCall `( @@`
+	Value   string        `| @Expr | @String | @Bool | @Int | @Ident )`
 }
 
 type FunctionCall struct {
@@ -53,11 +75,16 @@ type FunctionCall struct {
 	Args []string `"(" [ (@String | @Bool | @Int | @Expr | @Ident) ( "," (@String | @Bool | @Int | @Expr | @Ident) )* ] ")"`
 }
 
+type ReturnStmt struct {
+	Value string `"return" [ @Expr | @String | @Bool | @Int | @Ident ]`
+}
+
 type Statement struct {
-	IfCall   *IfStmt       `  "if" @@`
-	ElseCall *ElseStmt     `| @@`
-	VarCall  *VarDecl      `| "var" @@`
-	FuncCall *FunctionCall `| @@`
+	IfCall     *IfStmt       `  "if" @@`
+	ElseCall   *ElseStmt     `| @@`
+	VarCall    *VarDecl      `| "var" @@`
+	ReturnCall *ReturnStmt   `| @@`
+	FuncCall   *FunctionCall `| @@`
 }
 
 var Parser = participle.MustBuild[Statement](participle.Lexer(atomLexer), participle.Elide("Comment"))
@@ -148,18 +175,25 @@ func RunLine(line string) {
 
 	// while buffer check
 	if isBufferingWhile {
-		if line == "}" {
+		if line == "}" && whileDepth == 0 {
 			isBufferingWhile = false
 
 			// Execute the loop!
-			for evaluateCondition(whileCond) {
-				for _, loopLine := range whileLines {
+			cond := whileCond
+			body := whileLines
+			whileLines = nil
+			whileCond = ""
+
+			for evaluateCondition(cond) {
+				for _, loopLine := range body {
 					RunLine(loopLine)
 				}
 			}
-			whileLines = nil
-			whileCond = ""
 			return
+		}
+		whileDepth += strings.Count(line, "{") - strings.Count(line, "}")
+		if whileDepth < 0 {
+			whileDepth = 0
 		}
 		whileLines = append(whileLines, line)
 		return
@@ -173,26 +207,50 @@ func RunLine(line string) {
 			condPart = strings.TrimSuffix(condPart, "{")
 			whileCond = strings.TrimSpace(condPart)
 			isBufferingWhile = true
+			whileDepth = 0
 			whileLines = []string{}
 			return
 		}
 	}
 
-	if line == "}" {
-		skipBlock = false
-		return
-	}
-
-	if strings.HasPrefix(line, "else") {
-		if lastIfPassed {
-			skipBlock = true
-		} else {
-			skipBlock = false
+	if strings.HasPrefix(line, "}") && line != "}" {
+		rest := strings.TrimSpace(line[1:])
+		RunLine("}")
+		if rest != "" {
+			RunLine(rest)
 		}
 		return
 	}
 
-	if skipBlock {
+	if !strings.HasPrefix(line, "else") {
+		lastIfClosed = nil
+	}
+
+	if line == "}" {
+		if len(blockStack) > 0 {
+			closed := blockStack[len(blockStack)-1]
+			blockStack = blockStack[:len(blockStack)-1]
+			lastIfClosed = &elseInfo{
+				parentActive: closed.parentActiveAtOpen,
+				ifTaken:      closed.taken,
+			}
+		}
+		return
+	}
+
+	if strings.HasPrefix(line, "else") {
+		if lastIfClosed == nil {
+			fmt.Printf("[Parse Error] 'else' without matching 'if' on line '%s'\n", line)
+			return
+		}
+		parentActive := lastIfClosed.parentActive
+		elseActive := parentActive && !lastIfClosed.ifTaken
+		blockStack = append(blockStack, blockFrame{
+			active:             elseActive,
+			taken:              elseActive,
+			parentActiveAtOpen: parentActive,
+		})
+		lastIfClosed = nil
 		return
 	}
 
@@ -207,13 +265,18 @@ func RunLine(line string) {
 
 	// if
 	if stmt.IfCall != nil {
-		if evaluateCondition(stmt.IfCall.Condition) {
-			skipBlock = false
-			lastIfPassed = true
-		} else {
-			skipBlock = true
-			lastIfPassed = false
+		parentActive := currentlyActive()
+		frame := blockFrame{parentActiveAtOpen: parentActive}
+		if parentActive {
+			cond := evaluateCondition(stmt.IfCall.Condition)
+			frame.active = cond
+			frame.taken = cond
 		}
+		blockStack = append(blockStack, frame)
+		return
+	}
+
+	if !currentlyActive() {
 		return
 	}
 
