@@ -12,7 +12,7 @@ Of course! Anyone is welcome to contribute as long as you follow one golden rule
 
 ## AI & LLM Policy
 
-We understand that AI tools can speed up development, but unvetted AI contributions often make codebases messy and hard to maintain.:( 
+We understand that AI tools can speed up development, but unvetted AI contributions often make codebases messy and hard to maintain. :( 
 
 If you want to use an LLM (like Chatgpt, claude, or copilot) to assist with your code, you must follow these rules:
 

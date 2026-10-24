@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"github.com/Knetic/govaluate"
-	"github.com/alecthomas/participle/v2"
-	"github.com/alecthomas/participle/v2/lexer"
 )
 
 type blockFrame struct {
@@ -43,51 +41,239 @@ var currentFuncName = ""
 var currentFuncParams []string
 var currentFuncLines []string
 
-var atomLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{Name: "Comment", Pattern: `//.*`},
-	{Name: "Expr", Pattern: `\[[^\]]+\]`},
-	{Name: "String", Pattern: `"[^"]*"`},
-	{Name: "Bool", Pattern: `\b(true|false)\b`},
-	{Name: "Int", Pattern: `\d+`},
-	{Name: "LBrace", Pattern: `\{`},
-	{Name: "RBrace", Pattern: `\}`},
-	{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{Name: "Punct", Pattern: `==|\?=|\!=|<=|>=|[=(),]`},
-	{Name: "whitespace", Pattern: `\s+`},
-})
-
 type IfStmt struct {
-	Condition string `@Expr "{"`
-}
-
-type ElseStmt struct {
-	Body string `"else" "{"`
+	Condition string
 }
 
 type VarDecl struct {
-	Name    string        `@Ident "="`
-	FuncVal *FunctionCall `( @@`
-	Value   string        `| @Expr | @String | @Bool | @Int | @Ident )`
+	Name    string
+	FuncVal *FunctionCall
+	Value   string
 }
 
 type FunctionCall struct {
-	Name string   `@Ident`
-	Args []string `"(" [ (@String | @Bool | @Int | @Expr | @Ident) ( "," (@String | @Bool | @Int | @Expr | @Ident) )* ] ")"`
+	Name string
+	Args []string
 }
 
 type ReturnStmt struct {
-	Value string `"return" [ @Expr | @String | @Bool | @Int | @Ident ]`
+	Value string
 }
 
 type Statement struct {
-	IfCall     *IfStmt       `  "if" @@`
-	ElseCall   *ElseStmt     `| @@`
-	VarCall    *VarDecl      `| "var" @@`
-	ReturnCall *ReturnStmt   `| @@`
-	FuncCall   *FunctionCall `| @@`
+	IfCall     *IfStmt
+	VarCall    *VarDecl
+	ReturnCall *ReturnStmt
+	FuncCall   *FunctionCall
 }
 
-var Parser = participle.MustBuild[Statement](participle.Lexer(atomLexer), participle.Elide("Comment"))
+type statementToken struct {
+	kind  string
+	value string
+}
+
+func tokenizeStatement(line string) ([]statementToken, error) {
+	var tokens []statementToken
+	for i := 0; i < len(line); {
+		if line[i] == ' ' || line[i] == '\t' || line[i] == '\r' || line[i] == '\n' {
+			i++
+			continue
+		}
+		if i+1 < len(line) && line[i:i+2] == "//" {
+			break
+		}
+
+		start := i
+		switch {
+		case line[i] == '"':
+			i++
+			for i < len(line) && line[i] != '"' {
+				i++
+			}
+			if i == len(line) {
+				return nil, fmt.Errorf("unterminated string")
+			}
+			i++
+			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
+		case line[i] == '[':
+			i++
+			for i < len(line) && line[i] != ']' {
+				i++
+			}
+			if i == len(line) || i == start+1 {
+				return nil, fmt.Errorf("invalid expression")
+			}
+			i++
+			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
+		case isIdentifierStart(line[i]):
+			i++
+			for i < len(line) && isIdentifierPart(line[i]) {
+				i++
+			}
+			tokens = append(tokens, statementToken{kind: "ident", value: line[start:i]})
+		case line[i] >= '0' && line[i] <= '9':
+			i++
+			for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+				i++
+			}
+			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
+		default:
+			matched := ""
+			for _, op := range []string{"==", "?=", "!=", "<=", ">="} {
+				if strings.HasPrefix(line[i:], op) {
+					matched = op
+					break
+				}
+			}
+			if matched != "" {
+				i += len(matched)
+				tokens = append(tokens, statementToken{kind: matched, value: matched})
+				continue
+			}
+			if strings.ContainsRune("{}=(),", rune(line[i])) {
+				matched = line[i : i+1]
+				i++
+				tokens = append(tokens, statementToken{kind: matched, value: matched})
+				continue
+			}
+			return nil, fmt.Errorf("unexpected character %q", line[i])
+		}
+	}
+	return tokens, nil
+}
+
+func isIdentifierStart(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+func isIdentifierPart(c byte) bool {
+	return isIdentifierStart(c) || c >= '0' && c <= '9'
+}
+
+type statementParser struct {
+	tokens []statementToken
+	pos    int
+}
+
+func (p *statementParser) accept(kind string) (statementToken, bool) {
+	if p.pos >= len(p.tokens) || p.tokens[p.pos].kind != kind {
+		return statementToken{}, false
+	}
+	token := p.tokens[p.pos]
+	p.pos++
+	return token, true
+}
+
+func (p *statementParser) expect(kind string) (statementToken, error) {
+	if token, ok := p.accept(kind); ok {
+		return token, nil
+	}
+	if p.pos >= len(p.tokens) {
+		return statementToken{}, fmt.Errorf("expected %q at end of statement", kind)
+	}
+	return statementToken{}, fmt.Errorf("expected %q, got %q", kind, p.tokens[p.pos].value)
+}
+
+func (p *statementParser) parseValue() (string, error) {
+	if p.pos >= len(p.tokens) || p.tokens[p.pos].kind != "value" && p.tokens[p.pos].kind != "ident" {
+		return "", fmt.Errorf("expected a literal, expression, or identifier")
+	}
+	value := p.tokens[p.pos].value
+	p.pos++
+	return value, nil
+}
+
+func (p *statementParser) parseFunctionCall() (*FunctionCall, error) {
+	name, err := p.expect("ident")
+	if err != nil {
+		return nil, err
+	}
+	if _, err = p.expect("("); err != nil {
+		return nil, err
+	}
+	call := &FunctionCall{Name: name.value}
+	if _, ok := p.accept(")"); ok {
+		return call, nil
+	}
+	for {
+		arg, parseErr := p.parseValue()
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		call.Args = append(call.Args, arg)
+		if _, ok := p.accept(")"); ok {
+			return call, nil
+		}
+		if _, err = p.expect(","); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func parseStatement(line string) (*Statement, error) {
+	tokens, err := tokenizeStatement(line)
+	if err != nil {
+		return nil, err
+	}
+	p := &statementParser{tokens: tokens}
+	stmt := &Statement{}
+
+	if keyword, ok := p.accept("ident"); ok {
+		switch keyword.value {
+		case "if":
+			condition, parseErr := p.parseValue()
+			if parseErr != nil || !strings.HasPrefix(condition, "[") {
+				if parseErr == nil {
+					parseErr = fmt.Errorf("if condition must be an expression")
+				}
+				return nil, parseErr
+			}
+			if _, err = p.expect("{"); err != nil {
+				return nil, err
+			}
+			stmt.IfCall = &IfStmt{Condition: condition}
+		case "var":
+			name, parseErr := p.expect("ident")
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			if _, err = p.expect("="); err != nil {
+				return nil, err
+			}
+			decl := &VarDecl{Name: name.value}
+			if p.pos+1 < len(p.tokens) && p.tokens[p.pos].kind == "ident" && p.tokens[p.pos+1].kind == "(" {
+				decl.FuncVal, err = p.parseFunctionCall()
+			} else {
+				decl.Value, err = p.parseValue()
+			}
+			if err != nil {
+				return nil, err
+			}
+			stmt.VarCall = decl
+		case "return":
+			ret := &ReturnStmt{}
+			if p.pos < len(p.tokens) {
+				ret.Value, err = p.parseValue()
+				if err != nil {
+					return nil, err
+				}
+			}
+			stmt.ReturnCall = ret
+		default:
+			p.pos = 0
+			stmt.FuncCall, err = p.parseFunctionCall()
+		}
+	} else {
+		return nil, fmt.Errorf("expected statement keyword or function call")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if p.pos != len(p.tokens) {
+		return nil, fmt.Errorf("unexpected token %q", p.tokens[p.pos].value)
+	}
+	return stmt, nil
+}
 
 func isNumber(s string) bool {
 	if s == "" {
@@ -254,7 +440,7 @@ func RunLine(line string) {
 		return
 	}
 
-	stmt, err := Parser.ParseString("", line)
+	stmt, err := parseStatement(line)
 	if err != nil {
 		fmt.Printf("[Parse Error] on line '%s': %v\n", line, err)
 		return
