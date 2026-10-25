@@ -472,19 +472,39 @@ func RunLine(line string) {
 		varName := strings.TrimSpace(stmt.VarCall.Name)
 		varType := "ident"
 
-		if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
-			varType = "expr"
-		} else if val == "true" || val == "false" {
-			varType = "bool"
-		} else if strings.HasPrefix(val, `"`) && strings.HasSuffix(val, `"`) {
-			varType = "string"
-		} else if isNumber(val) {
-			varType = "int"
-		} else {
-			varType = "var"
+		if stmt.VarCall.FuncVal != nil {
+			result := ExecuteFunction(stmt.VarCall.FuncVal.Name, stmt.VarCall.FuncVal.Args)
+			if !result.returned {
+				return
+			}
+			val = result.value
+			varType = result.ttype
+		}
+
+		if varType == "ident" {
+			if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
+				varType = "expr"
+			} else if val == "true" || val == "false" {
+				varType = "bool"
+			} else if strings.HasPrefix(val, `"`) && strings.HasSuffix(val, `"`) {
+				varType = "string"
+			} else if isNumber(val) {
+				varType = "int"
+			} else {
+				varType = "var"
+			}
 		}
 
 		SetVariable(varName, val, varType)
+		return
+	}
+
+	if stmt.ReturnCall != nil {
+		if len(functionReturnStack) > 0 {
+			frame := functionReturnStack[len(functionReturnStack)-1]
+			frame.value = stmt.ReturnCall.Value
+			frame.returned = true
+		}
 		return
 	}
 

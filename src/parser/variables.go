@@ -84,6 +84,21 @@ func SetVariable(name string, value string, valType string) {
 		valType = existing.ttype
 	}
 
+	if valType == "int" {
+		if numVal, err := strconv.Atoi(value); err == nil {
+			evalParams[name] = numVal
+		} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			evalParams[name] = floatVal
+		} else {
+			evalParams[name] = value
+		}
+	} else if valType == "bool" {
+		evalParams[name] = (value == "true")
+	} else {
+		value = strings.Trim(value, `" `)
+		evalParams[name] = value
+	}
+
 	if existing, ok := Variables[name]; ok {
 		existing.ttype = valType
 		existing.Value = value
@@ -96,17 +111,4 @@ func SetVariable(name string, value string, valType string) {
 		}
 	}
 
-	if valType == "int" {
-		if numVal, err := strconv.Atoi(value); err == nil {
-			evalParams[name] = numVal
-		} else if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-			evalParams[name] = floatVal
-		} else {
-			evalParams[name] = value
-		}
-	} else if valType == "bool" {
-		evalParams[name] = (value == "true")
-	} else {
-		evalParams[name] = strings.Trim(value, `" `)
-	}
 }
