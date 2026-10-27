@@ -8,12 +8,15 @@ import (
 )
 
 func main() {
-	misc.ShowBanner()
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: atom3 <file.atom>")
 		return
 	}
 
-	parser.RunFile(os.Args[1])
+	if os.Args[1] == "version" {
+		misc.ShowVersion()
+	} else {
+		parser.RunFile(os.Args[1])
+	}
 }

@@ -16,12 +16,8 @@ func ClearTerminal() {
 	cmd.Stdout = os.Stdout
 	cmd.Run()
 }
-func ShowBanner() {
-	println("Atom3 Compiler.")
+func ShowVersion() {
+	println("Atom3")
 	println("Release: 2026.0")
-	println("Made by WawaDev (formerly spacecat) and the Atom3 Team.")
-	println("Three years of nothing, Third attempt at a new programming language and three mugs of tea.")
-
-	ClearTerminal()
-
+	println("by the Atom3 contributors.")
 }
