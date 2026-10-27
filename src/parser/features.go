@@ -31,7 +31,7 @@ func Print(text string, ttype string) {
 
 func DetermineType(val string) string {
 	t := "var"
-	if isNumber(val) {
+	if isNumeric(val) {
 		t = "int"
 	} else if val == "true" || val == "false" {
 		t = "bool"

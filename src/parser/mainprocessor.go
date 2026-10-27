@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Knetic/govaluate"
@@ -111,8 +112,10 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 				i++
 			}
 			tokens = append(tokens, statementToken{kind: "ident", value: line[start:i]})
-		case line[i] >= '0' && line[i] <= '9':
-			i++
+		case line[i] >= '0' && line[i] <= '9' || line[i] == '-' && i+1 < len(line) && line[i+1] >= '0' && line[i+1] <= '9':
+			if line[i] == '-' {
+				i++
+			}
 			for i < len(line) && line[i] >= '0' && line[i] <= '9' {
 				i++
 			}
@@ -275,23 +278,14 @@ func parseStatement(line string) (*Statement, error) {
 	return stmt, nil
 }
 
-func isNumber(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+func isNumeric(s string) bool {
+	_, err := strconv.ParseFloat(s, 64)
+	return err == nil
 }
 
 func evaluateCondition(condStr string) bool {
 	cond := strings.TrimSuffix(strings.TrimPrefix(condStr, "["), "]")
 	cond = strings.ReplaceAll(cond, "?=", "!=")
-
-	updateEvalParams()
 
 	expr, exists := exprCache[cond]
 	if !exists {
@@ -488,7 +482,7 @@ func RunLine(line string) {
 				varType = "bool"
 			} else if strings.HasPrefix(val, `"`) && strings.HasSuffix(val, `"`) {
 				varType = "string"
-			} else if isNumber(val) {
+			} else if isNumeric(val) {
 				varType = "int"
 			} else {
 				varType = "var"

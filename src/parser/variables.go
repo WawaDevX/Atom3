@@ -18,27 +18,10 @@ var Variables = make(map[string]Variable)
 var exprCache = make(map[string]*govaluate.EvaluableExpression)
 var evalParams = make(map[string]any)
 
-func updateEvalParams() {
-	for k, v := range Variables {
-		if v.ttype == "int" {
-			if numVal, err := strconv.Atoi(v.Value); err == nil {
-				evalParams[k] = numVal
-				continue
-			}
-		} else if v.ttype == "bool" {
-			evalParams[k] = (v.Value == "true")
-			continue
-		}
-		evalParams[k] = strings.Trim(v.Value, `" `)
-	}
-}
-
 func SetVariable(name string, value string, valType string) {
 	if valType == "expr" {
 		value = strings.TrimPrefix(value, `[`)
 		value = strings.TrimSuffix(value, `]`)
-
-		updateEvalParams()
 
 		expression, exists := exprCache[value]
 		if !exists {
