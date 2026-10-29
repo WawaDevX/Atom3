@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type UserFunc struct {
 	Params []string
 	Body   []string
+	Module string
 }
 
 type Result struct {
@@ -59,7 +61,14 @@ func ExecuteFunction(name string, args []string) Result {
 		return Result{returned: false}
 
 	default:
-		fn, exists := UserFunctions[name]
+		functionName := name
+		if !strings.Contains(name, ".") && currentModule != "" {
+			moduleFunction := currentModule + "." + name
+			if _, exists := UserFunctions[moduleFunction]; exists {
+				functionName = moduleFunction
+			}
+		}
+		fn, exists := UserFunctions[functionName]
 		if !exists {
 			fmt.Printf("[Runtime Error]: Unknown function '%s'\n", name)
 			return Result{returned: false}
@@ -80,10 +89,13 @@ func ExecuteFunction(name string, args []string) Result {
 		functionReturnStack = append(functionReturnStack, frame)
 		callerBlocks := blockStack
 		callerLastIfClosed := lastIfClosed
+		callerModule := currentModule
+		currentModule = fn.Module
 		defer func() {
 			functionReturnStack = functionReturnStack[:len(functionReturnStack)-1]
 			blockStack = callerBlocks
 			lastIfClosed = callerLastIfClosed
+			currentModule = callerModule
 		}()
 
 		for _, line := range fn.Body {
