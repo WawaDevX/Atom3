@@ -104,7 +104,7 @@ func TestRunLineAssignsFunctionReturn(t *testing.T) {
 
 	RunLine("var message=greeting()")
 	got, exists := Variables["message"]
-	if !exists || got.Value != `"hello"` || got.ttype != "string" {
+	if !exists || got.Value != "hello" || got.ttype != "string" {
 		t.Fatalf("message = %#v, exists %t; want string value hello", got, exists)
 	}
 }

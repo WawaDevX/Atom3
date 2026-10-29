@@ -150,7 +150,7 @@ func isIdentifierStart(c byte) bool {
 }
 
 func isIdentifierPart(c byte) bool {
-	return isIdentifierStart(c) || c >= '0' && c <= '9'
+	return isIdentifierStart(c) || c >= '0' && c <= '9' || c == '.'
 }
 
 type statementParser struct {
@@ -315,9 +315,18 @@ func RunLine(line string) {
 	if isBufferingFunc {
 		if line == "}" {
 			isBufferingFunc = false
-			UserFunctions[currentFuncName] = UserFunc{
-				Params: currentFuncParams,
-				Body:   currentFuncLines,
+			name := currentFuncName
+			if currentModule != "" {
+				name = currentModule + "." + name
+			}
+			if _, exists := UserFunctions[name]; exists {
+				fmt.Printf("[Runtime Error]: Function '%s' is already defined\n", name)
+			} else {
+				UserFunctions[name] = UserFunc{
+					Params: currentFuncParams,
+					Body:   currentFuncLines,
+					Module: currentModule,
+				}
 			}
 			currentFuncLines = nil
 			currentFuncParams = nil
@@ -431,6 +440,13 @@ func RunLine(line string) {
 			parentActiveAtOpen: parentActive,
 		})
 		lastIfClosed = nil
+		return
+	}
+
+	if strings.HasPrefix(line, "import ") {
+		if currentlyActive() {
+			ImportFile(strings.TrimSpace(strings.TrimPrefix(line, "import ")))
+		}
 		return
 	}
 
