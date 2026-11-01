@@ -106,9 +106,39 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 			}
 			i++
 			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
+		case line[i] == '{' && len(tokens) >= 3 && tokens[0].value == "var" && tokens[len(tokens)-1].kind == "=":
+			depth := 1
+			inString := false
+			i++
+			for i < len(line) && depth > 0 {
+				if line[i] == '"' && (i == 0 || line[i-1] != '\\') {
+					inString = !inString
+				} else if !inString {
+					if line[i] == '{' {
+						depth++
+					} else if line[i] == '}' {
+						depth--
+					}
+				}
+				i++
+			}
+			if depth != 0 || inString {
+				return nil, fmt.Errorf("unterminated array")
+			}
+			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
 		case isIdentifierStart(line[i]):
 			i++
 			for i < len(line) && isIdentifierPart(line[i]) {
+				i++
+			}
+			if i < len(line) && line[i] == '[' {
+				i++
+				for i < len(line) && line[i] != ']' {
+					i++
+				}
+				if i == len(line) {
+					return nil, fmt.Errorf("unterminated index")
+				}
 				i++
 			}
 			tokens = append(tokens, statementToken{kind: "ident", value: line[start:i]})
@@ -494,6 +524,8 @@ func RunLine(line string) {
 		if varType == "ident" {
 			if strings.HasPrefix(val, "[") && strings.HasSuffix(val, "]") {
 				varType = "expr"
+			} else if strings.HasPrefix(val, "{") && strings.HasSuffix(val, "}") {
+				varType = "array"
 			} else if val == "true" || val == "false" {
 				varType = "bool"
 			} else if strings.HasPrefix(val, `"`) && strings.HasSuffix(val, `"`) {
