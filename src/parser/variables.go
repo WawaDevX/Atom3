@@ -82,7 +82,7 @@ func SetVariable(name string, value string, valType string) {
 			var err error
 			expression, err = govaluate.NewEvaluableExpression(value)
 			if err != nil {
-				fmt.Printf("[Runtime Error]: Invalid expression '%s'\n", value)
+				RaiseException(fmt.Sprintf("Invalid expression '%s'", value), ErrRuntime)
 				return
 			}
 			exprCache[value] = expression
@@ -90,7 +90,7 @@ func SetVariable(name string, value string, valType string) {
 
 		result, err := expression.Evaluate(evalParams)
 		if err != nil {
-			fmt.Printf("[Runtime Error]: Failed to evaluate '%s': %v\n", value, err)
+			RaiseException(fmt.Sprintf("Failed to evaluate expression '%s': %v", value, err), ErrRuntime)
 			return
 		}
 
@@ -113,7 +113,7 @@ func SetVariable(name string, value string, valType string) {
 	if valType == "var" {
 		existing, ok := Variables[value]
 		if !ok {
-			fmt.Printf("[Runtime Error]: Variable not found or has not been defined yet!  '%s'\n", value)
+			RaiseException(fmt.Sprintf("Variable '%s' not found or has not been defined yet!", value), ErrRuntime)
 			return
 		}
 

@@ -92,7 +92,7 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 				i++
 			}
 			if i == len(line) {
-				return nil, fmt.Errorf("unterminated string")
+				return nil, RaiseException("unterminated string", ErrSyntax)
 			}
 			i++
 			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
@@ -102,7 +102,7 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 				i++
 			}
 			if i == len(line) || i == start+1 {
-				return nil, fmt.Errorf("invalid expression")
+				return nil, RaiseException("invalid expression", ErrSyntax)
 			}
 			i++
 			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
@@ -123,7 +123,7 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 				i++
 			}
 			if depth != 0 || inString {
-				return nil, fmt.Errorf("unterminated array")
+				return nil, RaiseException("unterminated array", ErrSyntax)
 			}
 			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
 		case isIdentifierStart(line[i]):
@@ -137,7 +137,7 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 					i++
 				}
 				if i == len(line) {
-					return nil, fmt.Errorf("unterminated index")
+					return nil, RaiseException("unterminated index", ErrSyntax)
 				}
 				i++
 			}
@@ -169,7 +169,7 @@ func tokenizeStatement(line string) ([]statementToken, error) {
 				tokens = append(tokens, statementToken{kind: matched, value: matched})
 				continue
 			}
-			return nil, fmt.Errorf("unexpected character %q", line[i])
+			return nil, RaiseException(fmt.Sprintf("unexpected character %q", line[i]), ErrSyntax)
 		}
 	}
 	return tokens, nil

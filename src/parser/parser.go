@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 var currentFile string
 var currentModule string
 var importedFiles = make(map[string]bool)
+var currentLine int
 
 // Wait pauses execution for a given number of seconds
 func Wait(seconds int) {
@@ -21,7 +21,7 @@ func Wait(seconds int) {
 func RunFile(filename string) {
 	path, err := filepath.Abs(filename)
 	if err != nil {
-		fmt.Println("Error resolving file:", err)
+		RaiseException("Error resolving file path: "+err.Error(), ErrInternal)
 		return
 	}
 	runFile(path, "")
@@ -37,7 +37,7 @@ func ImportFile(name string) {
 	}
 	path, err := filepath.Abs(filepath.Join(base, name))
 	if err != nil {
-		fmt.Println("Error resolving import:", err)
+		RaiseException("Error resolving import path: "+err.Error(), ErrInternal)
 		return
 	}
 	if importedFiles[path] {
@@ -53,7 +53,7 @@ func runFile(filename, module string) {
 	}
 	f, err := os.Open(filename)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
+		RaiseException("Error opening file: "+err.Error(), ErrInternal)
 		return
 	}
 	defer f.Close()
@@ -63,6 +63,7 @@ func runFile(filename, module string) {
 	previousModule := currentModule
 	currentFile = filename
 	currentModule = module
+	currentLine = 0
 	defer func() {
 		currentFile = previousFile
 		currentModule = previousModule
@@ -70,9 +71,10 @@ func runFile(filename, module string) {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
+		currentLine++
 		RunLine(scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading file:", err)
+		RaiseException("Error reading file: "+err.Error(), ErrInternal)
 	}
 }
