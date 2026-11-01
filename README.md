@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="640" height=auto alt="Drawing sketchpad (4)" src="https://github.com/user-attachments/assets/04a14b8e-8dfb-4dd5-bd30-a76a5790de93">
+  <img width="640" height=auto alt="Drawing sketchpad (4)" src="https://github.com/user-attachments/assets/0b478924-53fc-4225-80e6-e963f5fa3dd6">
 </div>
 
 ![stars](https://img.shields.io/github/stars/WawaDevX/atomlang-legacy-DONT-USE-?style=social)
