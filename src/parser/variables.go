@@ -14,9 +14,63 @@ type Variable struct {
 	Value string
 }
 
+type arrayElement struct {
+	ttype string
+	Value string
+}
+
+type array struct {
+	Name     string
+	Elements []arrayElement
+}
+
 var Variables = make(map[string]Variable)
+var Arrays = make(map[string]array)
 var exprCache = make(map[string]*govaluate.EvaluableExpression)
 var evalParams = make(map[string]any)
+
+func splitArray(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	var elements []string
+	start := 0
+	braceDepth := 0
+	bracketDepth := 0
+	inString := false
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
+		case '"':
+			if i == 0 || value[i-1] != '\\' {
+				inString = !inString
+			}
+		case '{':
+			if !inString {
+				braceDepth++
+			}
+		case '}':
+			if !inString {
+				braceDepth--
+			}
+		case '[':
+			if !inString {
+				bracketDepth++
+			}
+		case ']':
+			if !inString {
+				bracketDepth--
+			}
+		case ',':
+			if !inString && braceDepth == 0 && bracketDepth == 0 {
+				elements = append(elements, strings.TrimSpace(value[start:i]))
+				start = i + 1
+			}
+		}
+	}
+	elements = append(elements, strings.TrimSpace(value[start:]))
+	return elements
+}
 
 func SetVariable(name string, value string, valType string) {
 	if valType == "expr" {
@@ -77,7 +131,23 @@ func SetVariable(name string, value string, valType string) {
 		}
 	} else if valType == "bool" {
 		evalParams[name] = (value == "true")
+	} else if valType == "array" {
+		arrayContents := strings.TrimSuffix(strings.TrimPrefix(value, `{`), `}`)
+		elements := splitArray(arrayContents)
+		var arrayElements []arrayElement
+		for _, elem := range elements {
+			arrayElements = append(arrayElements, arrayElement{
+				ttype: DetermineType(elem),
+				Value: elem,
+			})
+		}
+		Arrays[name] = array{
+			Name:     name,
+			Elements: arrayElements,
+		}
+		delete(evalParams, name)
 	} else {
+		delete(Arrays, name)
 		value = strings.Trim(value, `" `)
 		evalParams[name] = value
 	}
