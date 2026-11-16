@@ -60,6 +60,14 @@ func ExecuteFunction(name string, args []string) Result {
 		}
 		return Result{returned: false}
 
+	case "arrlen":
+		if Arr, exists := Arrays[args[0]]; exists {
+			return Result{value: strconv.Itoa(len(Arr.Elements)), ttype: "int", returned: true}
+		} else {
+			RaiseException(fmt.Sprintf("Array '%s' not found or has not been defined yet!", args[0]), ErrNotFound)
+			return Result{returned: false}
+		}
+
 	default:
 		functionName := name
 		if !strings.Contains(name, ".") && currentModule != "" {
@@ -70,12 +78,12 @@ func ExecuteFunction(name string, args []string) Result {
 		}
 		fn, exists := UserFunctions[functionName]
 		if !exists {
-			fmt.Printf("[Runtime Error]: Unknown function '%s'\n", name)
+			RaiseException(fmt.Sprintf("Unknown function '%s'", name), ErrRuntime)
 			return Result{returned: false}
 		}
 
 		if len(args) != len(fn.Params) {
-			fmt.Printf("[Runtime Error]: Function '%s' expects %d args, got %d\n", name, len(fn.Params), len(args))
+			RaiseException(fmt.Sprintf("Function '%s' expects %d args, got %d", name, len(fn.Params), len(args)), ErrNotFound)
 			return Result{returned: false}
 		}
 

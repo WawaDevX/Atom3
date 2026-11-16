@@ -16,6 +16,7 @@ const (
 	ErrDivisionByZero      = "Division By Zero Error"
 	ErrInvalidOperation    = "Invalid Operation Error"
 	ErrInvalidFunctionCall = "Invalid Function Call Error"
+	ErrNotFound            = "Not Found Error"
 )
 
 func RaiseException(message string, errType string) error {
