@@ -1,0 +1,11 @@
+var input = input("what color is a banana?")
+
+print(input)
+
+if [input == "yellow"] {
+
+  print("you're smart!")
+
+} else {
+  print("wrong answer!")
+}
