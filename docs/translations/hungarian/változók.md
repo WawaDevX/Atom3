@@ -43,7 +43,7 @@ A változókat többféleképpen is fel lehet használni. Például egy print f�
 ```
 var nev = "erika" // a nev valtozo aminek a erteke "erika" 
 
-print(name) // ki "print"elni a "nev" valtozó értékét
+print( nev) // ki "print"elni a "nev" valtozó értékét
 ```
 
 A többi felhasználási módot más fájlok dokumentálják.
