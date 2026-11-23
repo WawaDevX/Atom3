@@ -5,18 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
-
-var currentFile string
-var currentModule string
-var importedFiles = make(map[string]bool)
-var currentLine int
-
-// Wait pauses execution for a given number of seconds
-func Wait(seconds int) {
-	time.Sleep(time.Duration(seconds) * time.Second)
-}
 
 func RunFile(filename string) {
 	path, err := filepath.Abs(filename)
@@ -51,12 +40,12 @@ func runFile(filename, module string) {
 	if importedFiles[filename] {
 		return
 	}
-	f, err := os.Open(filename)
+	file, err := os.Open(filename)
 	if err != nil {
 		RaiseException("Error opening file: "+err.Error(), ErrInternal)
 		return
 	}
-	defer f.Close()
+	defer file.Close()
 
 	importedFiles[filename] = true
 	previousFile := currentFile
@@ -69,7 +58,7 @@ func runFile(filename, module string) {
 		currentModule = previousModule
 	}()
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		currentLine++
 		RunLine(scanner.Text())

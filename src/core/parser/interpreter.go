@@ -5,7 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Knetic/govaluate"
+	"Atom3/src/core/evaluator"
+	atomlexer "Atom3/src/core/lexer"
 )
 
 type blockFrame struct {
@@ -40,6 +41,7 @@ var whileLines []string
 var isBufferingFunc = false
 var currentFuncName = ""
 var currentFuncParams []string
+var currentFuncDefaults map[string]string
 var currentFuncLines []string
 
 type IfStmt struct {
@@ -68,150 +70,35 @@ type Statement struct {
 	FuncCall   *FunctionCall
 }
 
-type statementToken struct {
-	kind  string
-	value string
-}
-
-func tokenizeStatement(line string) ([]statementToken, error) {
-	var tokens []statementToken
-	for i := 0; i < len(line); {
-		if line[i] == ' ' || line[i] == '\t' || line[i] == '\r' || line[i] == '\n' {
-			i++
-			continue
-		}
-		if i+1 < len(line) && line[i:i+2] == "//" {
-			break
-		}
-
-		start := i
-		switch {
-		case line[i] == '"':
-			i++
-			for i < len(line) && line[i] != '"' {
-				i++
-			}
-			if i == len(line) {
-				return nil, RaiseException("unterminated string", ErrSyntax)
-			}
-			i++
-			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
-		case line[i] == '[':
-			i++
-			for i < len(line) && line[i] != ']' {
-				i++
-			}
-			if i == len(line) || i == start+1 {
-				return nil, RaiseException("invalid expression", ErrSyntax)
-			}
-			i++
-			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
-		case line[i] == '{' && len(tokens) >= 3 && tokens[0].value == "var" && tokens[len(tokens)-1].kind == "=":
-			depth := 1
-			inString := false
-			i++
-			for i < len(line) && depth > 0 {
-				if line[i] == '"' && (i == 0 || line[i-1] != '\\') {
-					inString = !inString
-				} else if !inString {
-					if line[i] == '{' {
-						depth++
-					} else if line[i] == '}' {
-						depth--
-					}
-				}
-				i++
-			}
-			if depth != 0 || inString {
-				return nil, RaiseException("unterminated array", ErrSyntax)
-			}
-			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
-		case isIdentifierStart(line[i]):
-			i++
-			for i < len(line) && isIdentifierPart(line[i]) {
-				i++
-			}
-			if i < len(line) && line[i] == '[' {
-				i++
-				for i < len(line) && line[i] != ']' {
-					i++
-				}
-				if i == len(line) {
-					return nil, RaiseException("unterminated index", ErrSyntax)
-				}
-				i++
-			}
-			tokens = append(tokens, statementToken{kind: "ident", value: line[start:i]})
-		case line[i] >= '0' && line[i] <= '9' || line[i] == '-' && i+1 < len(line) && line[i+1] >= '0' && line[i+1] <= '9':
-			if line[i] == '-' {
-				i++
-			}
-			for i < len(line) && line[i] >= '0' && line[i] <= '9' {
-				i++
-			}
-			tokens = append(tokens, statementToken{kind: "value", value: line[start:i]})
-		default:
-			matched := ""
-			for _, op := range []string{"==", "?=", "!=", "<=", ">="} {
-				if strings.HasPrefix(line[i:], op) {
-					matched = op
-					break
-				}
-			}
-			if matched != "" {
-				i += len(matched)
-				tokens = append(tokens, statementToken{kind: matched, value: matched})
-				continue
-			}
-			if strings.ContainsRune("{}=(),", rune(line[i])) {
-				matched = line[i : i+1]
-				i++
-				tokens = append(tokens, statementToken{kind: matched, value: matched})
-				continue
-			}
-			return nil, RaiseException(fmt.Sprintf("unexpected character %q", line[i]), ErrSyntax)
-		}
-	}
-	return tokens, nil
-}
-
-func isIdentifierStart(c byte) bool {
-	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
-}
-
-func isIdentifierPart(c byte) bool {
-	return isIdentifierStart(c) || c >= '0' && c <= '9' || c == '.'
-}
-
 type statementParser struct {
-	tokens []statementToken
+	tokens []atomlexer.Token
 	pos    int
 }
 
-func (p *statementParser) accept(kind string) (statementToken, bool) {
-	if p.pos >= len(p.tokens) || p.tokens[p.pos].kind != kind {
-		return statementToken{}, false
+func (p *statementParser) accept(kind string) (atomlexer.Token, bool) {
+	if p.pos >= len(p.tokens) || p.tokens[p.pos].Kind != kind {
+		return atomlexer.Token{}, false
 	}
 	token := p.tokens[p.pos]
 	p.pos++
 	return token, true
 }
 
-func (p *statementParser) expect(kind string) (statementToken, error) {
+func (p *statementParser) expect(kind string) (atomlexer.Token, error) {
 	if token, ok := p.accept(kind); ok {
 		return token, nil
 	}
 	if p.pos >= len(p.tokens) {
-		return statementToken{}, fmt.Errorf("expected %q at end of statement", kind)
+		return atomlexer.Token{}, fmt.Errorf("expected %q at end of statement", kind)
 	}
-	return statementToken{}, fmt.Errorf("expected %q, got %q", kind, p.tokens[p.pos].value)
+	return atomlexer.Token{}, fmt.Errorf("expected %q, got %q", kind, p.tokens[p.pos].Value)
 }
 
 func (p *statementParser) parseValue() (string, error) {
-	if p.pos >= len(p.tokens) || p.tokens[p.pos].kind != "value" && p.tokens[p.pos].kind != "ident" {
-		return "", fmt.Errorf("expected a literal, expression, or identifier")
+	if p.pos >= len(p.tokens) || p.tokens[p.pos].Kind != "value" && p.tokens[p.pos].Kind != "ident" {
+		RaiseException("expected a literal, expression, or identifier", ErrSyntax)
 	}
-	value := p.tokens[p.pos].value
+	value := p.tokens[p.pos].Value
 	p.pos++
 	return value, nil
 }
@@ -224,7 +111,7 @@ func (p *statementParser) parseFunctionCall() (*FunctionCall, error) {
 	if _, err = p.expect("("); err != nil {
 		return nil, err
 	}
-	call := &FunctionCall{Name: name.value}
+	call := &FunctionCall{Name: name.Value}
 	if _, ok := p.accept(")"); ok {
 		return call, nil
 	}
@@ -244,7 +131,7 @@ func (p *statementParser) parseFunctionCall() (*FunctionCall, error) {
 }
 
 func parseStatement(line string) (*Statement, error) {
-	tokens, err := tokenizeStatement(line)
+	tokens, err := atomlexer.Tokenize(line)
 	if err != nil {
 		return nil, err
 	}
@@ -252,12 +139,12 @@ func parseStatement(line string) (*Statement, error) {
 	stmt := &Statement{}
 
 	if keyword, ok := p.accept("ident"); ok {
-		switch keyword.value {
+		switch keyword.Value {
 		case "if":
 			condition, parseErr := p.parseValue()
 			if parseErr != nil || !strings.HasPrefix(condition, "[") {
 				if parseErr == nil {
-					parseErr = fmt.Errorf("if condition must be an expression")
+					parseErr = RaiseException("if condition must be an expression", ErrSyntax)
 				}
 				return nil, parseErr
 			}
@@ -273,8 +160,8 @@ func parseStatement(line string) (*Statement, error) {
 			if _, err = p.expect("="); err != nil {
 				return nil, err
 			}
-			decl := &VarDecl{Name: name.value}
-			if p.pos+1 < len(p.tokens) && p.tokens[p.pos].kind == "ident" && p.tokens[p.pos+1].kind == "(" {
+			decl := &VarDecl{Name: name.Value}
+			if p.pos+1 < len(p.tokens) && p.tokens[p.pos].Kind == "ident" && p.tokens[p.pos+1].Kind == "(" {
 				decl.FuncVal, err = p.parseFunctionCall()
 			} else {
 				decl.Value, err = p.parseValue()
@@ -297,13 +184,13 @@ func parseStatement(line string) (*Statement, error) {
 			stmt.FuncCall, err = p.parseFunctionCall()
 		}
 	} else {
-		return nil, fmt.Errorf("expected statement keyword or function call")
+		return nil, RaiseException("expected statement keyword or function call", ErrSyntax)
 	}
 	if err != nil {
 		return nil, err
 	}
 	if p.pos != len(p.tokens) {
-		return nil, fmt.Errorf("unexpected token %q", p.tokens[p.pos].value)
+		return nil, fmt.Errorf("unexpected token %q", p.tokens[p.pos].Value)
 	}
 	return stmt, nil
 }
@@ -317,17 +204,7 @@ func evaluateCondition(condStr string) bool {
 	cond := strings.TrimSuffix(strings.TrimPrefix(condStr, "["), "]")
 	cond = strings.ReplaceAll(cond, "?=", "!=")
 
-	expr, exists := exprCache[cond]
-	if !exists {
-		var err error
-		expr, err = govaluate.NewEvaluableExpression(cond)
-		if err != nil {
-			return false
-		}
-		exprCache[cond] = expr
-	}
-
-	result, err := expr.Evaluate(evalParams)
+	result, err := evaluator.Evaluate(cond, evalParams, arrLen, expressionFunctions())
 	if err != nil {
 		return false
 	}
@@ -350,16 +227,21 @@ func RunLine(line string) {
 				name = currentModule + "." + name
 			}
 			if _, exists := UserFunctions[name]; exists {
-				fmt.Printf("[Runtime Error]: Function '%s' is already defined\n", name)
+				RaiseException(
+					fmt.Sprintf("Function '%s' is already defined", name),
+					ErrRuntime,
+				)
 			} else {
 				UserFunctions[name] = UserFunc{
-					Params: currentFuncParams,
-					Body:   currentFuncLines,
-					Module: currentModule,
+					Params:   currentFuncParams,
+					Defaults: currentFuncDefaults,
+					Body:     currentFuncLines,
+					Module:   currentModule,
 				}
 			}
 			currentFuncLines = nil
 			currentFuncParams = nil
+			currentFuncDefaults = nil
 			currentFuncName = ""
 			return
 		}
@@ -379,10 +261,23 @@ func RunLine(line string) {
 			paramStr = strings.TrimSpace(paramStr)
 
 			currentFuncParams = nil
+			currentFuncDefaults = make(map[string]string)
 			if paramStr != "" {
 				rawParams := strings.Split(paramStr, ",")
-				for _, p := range rawParams {
-					currentFuncParams = append(currentFuncParams, strings.TrimSpace(p))
+				for _, raw := range rawParams {
+					param := strings.TrimSpace(raw)
+					if name, defaultValue, found := strings.Cut(param, "="); found {
+						name = strings.TrimSpace(name)
+						defaultValue = strings.TrimSpace(defaultValue)
+						if name == "" || defaultValue == "" {
+							RaiseException(fmt.Sprintf("Invalid optional parameter '%s'", param), ErrSyntax)
+							return
+						}
+						currentFuncParams = append(currentFuncParams, name)
+						currentFuncDefaults[name] = defaultValue
+					} else if param != "" {
+						currentFuncParams = append(currentFuncParams, param)
+					}
 				}
 			}
 
@@ -459,7 +354,10 @@ func RunLine(line string) {
 
 	if strings.HasPrefix(line, "else") {
 		if lastIfClosed == nil {
-			fmt.Printf("[Parse Error] 'else' without matching 'if' on line '%s'\n", line)
+			RaiseException(
+				fmt.Sprintf("'else' without matching 'if' on line '%s'", line),
+				ErrParse,
+			)
 			return
 		}
 		parentActive := lastIfClosed.parentActive
@@ -482,7 +380,10 @@ func RunLine(line string) {
 
 	stmt, err := parseStatement(line)
 	if err != nil {
-		fmt.Printf("[Parse Error] on line '%s': %v\n", line, err)
+		RaiseException(
+			fmt.Sprintf("on line '%s': %v", line, err),
+			ErrParse,
+		)
 		return
 	}
 	if stmt == nil {
@@ -542,11 +443,18 @@ func RunLine(line string) {
 	}
 
 	if stmt.ReturnCall != nil {
-		if len(functionReturnStack) > 0 {
-			frame := functionReturnStack[len(functionReturnStack)-1]
-			frame.value = stmt.ReturnCall.Value
-			frame.returned = true
+		if len(functionReturnStack) == 0 {
+			RaiseException("'return' cannot be used outside a function", ErrInvalidOperation)
+			return
 		}
+		frame := functionReturnStack[len(functionReturnStack)-1]
+		frame.value = ResolveValue(stmt.ReturnCall.Value, true)
+		if variable, exists := Variables[stmt.ReturnCall.Value]; exists {
+			frame.ttype = variable.ttype
+		} else {
+			frame.ttype = DetermineType(frame.value)
+		}
+		frame.returned = true
 		return
 	}
 

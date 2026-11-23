@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"os"
 )
 
 const (
@@ -20,6 +21,8 @@ const (
 )
 
 func RaiseException(message string, errType string) error {
-	fmt.Printf("[%s]: %s (Fl: %s, Ln: %d)\n", errType, message, currentFile, currentLine)
-	return fmt.Errorf("[%s]: %s (Fl: %s, Ln: %d)", errType, message, currentFile, currentLine)
+	errMsg := fmt.Sprintf("[%s]: %s (Fl: %s, Ln: %d)", errType, message, currentFile, currentLine)
+	fmt.Println(errMsg)
+	os.Exit(1)
+	return fmt.Errorf("%s", errMsg) // satisfies compiler
 }

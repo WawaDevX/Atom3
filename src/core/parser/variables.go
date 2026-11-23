@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Knetic/govaluate"
+	"Atom3/src/core/evaluator"
 )
 
 type Variable struct {
@@ -26,7 +26,15 @@ type array struct {
 
 var Variables = make(map[string]Variable)
 var Arrays = make(map[string]array)
-var exprCache = make(map[string]*govaluate.EvaluableExpression)
+
+func arrLen(name string) (int, error) {
+	arrayValue, exists := Arrays[name]
+	if !exists {
+		return 0, fmt.Errorf("array %q is undefined", name)
+	}
+	return len(arrayValue.Elements), nil
+}
+
 var evalParams = make(map[string]any)
 
 func splitArray(value string) []string {
@@ -77,18 +85,7 @@ func SetVariable(name string, value string, valType string) {
 		value = strings.TrimPrefix(value, `[`)
 		value = strings.TrimSuffix(value, `]`)
 
-		expression, exists := exprCache[value]
-		if !exists {
-			var err error
-			expression, err = govaluate.NewEvaluableExpression(value)
-			if err != nil {
-				RaiseException(fmt.Sprintf("Invalid expression '%s'", value), ErrRuntime)
-				return
-			}
-			exprCache[value] = expression
-		}
-
-		result, err := expression.Evaluate(evalParams)
+		result, err := evaluator.Evaluate(value, evalParams, arrLen, expressionFunctions())
 		if err != nil {
 			RaiseException(fmt.Sprintf("Failed to evaluate expression '%s': %v", value, err), ErrRuntime)
 			return
@@ -145,7 +142,11 @@ func SetVariable(name string, value string, valType string) {
 			Name:     name,
 			Elements: arrayElements,
 		}
-		delete(evalParams, name)
+		arrayValues := make([]any, len(arrayElements))
+		for i, elem := range arrayElements {
+			arrayValues[i] = elem.Value
+		}
+		evalParams[name] = arrayValues
 	} else {
 		delete(Arrays, name)
 		value = strings.Trim(value, `" `)

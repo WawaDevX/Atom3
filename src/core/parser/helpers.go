@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	atomlexer "Atom3/src/core/lexer"
 )
 
 // Router function to determine a values true value.
@@ -20,20 +22,32 @@ func ResolveValue(arg string, doexpr bool) string {
 		existing, ok := Variables[arrayname]
 
 		if !ok {
-			fmt.Printf("Error: %s is not defined\n", arrayname)
+			RaiseException(
+				fmt.Sprintf("%s is not defined", arrayname),
+				ErrRuntime,
+			)
 			return ""
 		} else if existing.ttype != "array" {
-			fmt.Printf("Error: %s is not an array\n", arrayname)
+			RaiseException(
+				fmt.Sprintf("%s is not an array", arrayname),
+				ErrRuntime,
+			)
 			return ""
 		}
 
 		index := ResolveValue(strings.TrimSuffix(parts[1], "]"), false)
 		indexresult, err := strconv.Atoi(index)
 		if err != nil {
-			fmt.Printf("Error: index %s is invalid or empty\n", parts[1])
+			RaiseException(
+				fmt.Sprintf("Index %s is invalid or empty", parts[1]),
+				ErrRuntime,
+			)
 			return ""
 		} else if indexresult < 0 || indexresult >= len(Arrays[arrayname].Elements) {
-			fmt.Printf("Error: index %d is out of bounds for array %s\n", indexresult, arrayname)
+			RaiseException(
+				fmt.Sprintf("Index %d is out of bounds for array %s", indexresult, arrayname),
+				ErrIndexOutOfRange,
+			)
 			return ""
 		} else {
 			return ResolveValue(Arrays[arrayname].Elements[indexresult].Value, false)
@@ -44,8 +58,29 @@ func ResolveValue(arg string, doexpr bool) string {
 	if v, exists := Variables[arg]; exists {
 		return v.Value
 	}
-	// Booleans and strings
-	return strings.Trim(arg, `"`)
+
+	trimmed := strings.TrimSpace(arg)
+	if strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`) {
+		return strings.Trim(trimmed, `"`)
+	}
+	if trimmed == "true" || trimmed == "false" || isNumeric(trimmed) {
+		return trimmed
+	}
+	if len(trimmed) > 0 && atomlexer.IsIdentifierStart(trimmed[0]) {
+		valid := true
+		for i := 1; i < len(trimmed); i++ {
+			if !atomlexer.IsIdentifierPart(trimmed[i]) {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			RaiseException(fmt.Sprintf("Variable '%s' not found or has not been defined yet!", trimmed), ErrNotFound)
+			return ""
+		}
+	}
+
+	return trimmed
 }
 
 func Getenvready() {
